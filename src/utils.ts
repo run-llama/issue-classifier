@@ -1,40 +1,44 @@
 import { Octokit } from "octokit";
-import type {
-  CrossReferencedEvent,
-  GitHubIssue,
-  GoodFirstIssue,
-  RepoDetails,
+import {
+  ClassifiedGitHubIssues,
+  type CrossReferencedEvent,
+  type GitHubIssue,
+  type GoodFirstIssue,
+  type RepoDetails,
 } from "./types";
 import LlamaCloud from "@llamaindex/llama-cloud";
 import { CountingSemaphore } from "./semaphore";
-import type { ClassifierRule } from "@llamaindex/llama-cloud/resources/classifier.js";
+import type { ExtractConfig } from "@llamaindex/llama-cloud/resources/extraction.js";
 import { Logger, type ILogObj } from "tslog";
 
-const classificationRules: ClassifierRule[] = [
-  {
-    type: "good-first-issue",
-    description: `
-      The GitHub issue is suitable for first-time contributors.
-      Characteristics may include:
-      - Small, well-scoped tasks that can be completed in a few hours or days.
-      - Clear steps, examples, or instructions provided.
-      - Low dependency on complex internal knowledge.
-      - Low risk of breaking core functionality.
-    `,
-  },
-  {
-    type: "advanced",
-    description: `
-      The GitHub issue is advanced and not suitable for first-time contributors.
-      Characteristics may include:
-      - Large or complex tasks requiring deep understanding of the codebase.
-      - Requires knowledge of advanced concepts or multiple systems.
-      - Dependencies on ongoing work or external integrations.
-      - High risk of regressions or breaking core functionality.
-      - Tasks intended for experienced contributors or maintainers.
-    `,
-  },
-];
+const issuesBatchSize = 10;
+
+const classoficationSystemPrompt = `You are a GitHub issue classifier that helps identify which issues are suitable for first-time contributors versus those requiring experienced developers.
+
+Your task is to analyze GitHub issues and classify each one into one of two categories:
+
+**good-first-issue**: Issues that are human-approachable and suitable for first-time contributors to this project. These issues help new contributors get familiar with the codebase and contribution workflow. They may still be challenging but should be approachable without deep project-specific knowledge.
+
+Characteristics include:
+- Well-scoped tasks with clear boundaries and acceptance criteria
+- Self-contained changes that don't require understanding multiple interconnected systems
+- Clear context, examples, or pointers to relevant code sections provided
+- Limited dependencies on other ongoing work or external integrations
+- Changes isolated to a single feature or component, reducing risk to core functionality
+- May involve meaningful work like bug fixes, feature additions, or refactoring, not just trivial changes
+
+**advanced**: Issues that are highly complex and require experienced contributors familiar with the project. These issues involve multiple moving parts and deep architectural understanding.
+
+Characteristics include:
+- Large-scale changes spanning multiple systems, components, or layers of the application
+- Requires deep understanding of core architecture, design patterns, or business logic
+- Involves critical functionality where errors could cause widespread regressions or system failures
+- Dependencies on multiple integrations, external services, or ongoing development efforts
+- Requires coordination with maintainers or other contributors
+- May need expertise in specific domains, technologies, or complex algorithms
+- High risk of cascading effects across the codebase
+
+For each issue provided, analyze it to determine the appropriate classification.`;
 
 const pageLength = 50;
 
@@ -226,66 +230,132 @@ export async function getLastWeekIssues(
   return allIssues;
 }
 
-function generateFile(issue: GitHubIssue): File {
-  const file = new File([issue.content], `issue-${issue.number}.txt`, {
-    type: "text/plain",
-  });
+function generateFile(issues: GitHubIssue[]): File {
+  let content: string = "";
+  for (const issue of issues) {
+    if (issue.content != "") {
+      content += `## Issue ${issue.number}\n\n${issue.content}`;
+    }
+  }
+  const file = new File(
+    [content],
+    `issues-${issues.at(0)!.number}-${issues.at(issues.length - 1)!.number}.txt`,
+    {
+      type: "text/plain",
+    },
+  );
   return file;
 }
 
-async function isGoodFirstIssue(
+function issuesToMap(issues: GitHubIssue[]): Map<number, GitHubIssue> {
+  const m: Map<number, GitHubIssue> = new Map();
+  for (const issue of issues) {
+    m.set(issue.number, issue);
+  }
+  return m;
+}
+
+function extractDataToIssues(
+  data: {
+    [key: string]:
+      | string
+      | number
+      | boolean
+      | unknown[]
+      | {
+          [key: string]: unknown;
+        }
+      | null;
+  },
+  issuesMap: Map<number, GitHubIssue>,
+  logger: Logger<ILogObj>,
+): GoodFirstIssue[] {
+  const parsedData = ClassifiedGitHubIssues.parse(data);
+  const issues: GoodFirstIssue[] = [];
+  for (const issue of parsedData.issues) {
+    logger.debug(
+      `Issue ${issue.issue_number} classified as ${issue.classification}`,
+    );
+    const ghIssue = issuesMap.get(issue.issue_number);
+    if (ghIssue) {
+      issues.push({
+        labels: ghIssue.labels,
+        number: issue.issue_number,
+        goodFirstIssue: issue.classification === "good-first-issue",
+      });
+    }
+  }
+  return issues;
+}
+
+async function areGoodFirstIssues(
   client: LlamaCloud,
-  issue: GitHubIssue,
+  issues: GitHubIssue[],
   semaphore: CountingSemaphore,
   logger: Logger<ILogObj>,
-): Promise<GoodFirstIssue> {
-  logger.debug(`Starting to classify ${issue.number}`);
+): Promise<GoodFirstIssue[]> {
+  logger.debug(
+    `Starting to classify issues range: ${issues.at(0)!.number}-${issues.at(issues.length - 1)!.number}`,
+  );
   const lock = await semaphore.acquire();
+  const issuesMap = issuesToMap(issues);
   try {
     const fileObj = await client.files.create({
-      file: generateFile(issue),
-      purpose: "classify",
+      file: generateFile(issues),
+      purpose: "extract",
     });
     logger.info(`Uploaded file with ID ${fileObj.id}`);
-    const classifyResponse = await client.classifier.classify({
-      file_ids: [fileObj.id],
-      rules: classificationRules,
-      mode: "FAST",
+    const extractResponse = await client.extraction.extract({
+      file_id: fileObj.id,
+      data_schema: JSON.parse(
+        JSON.stringify(ClassifiedGitHubIssues.toJSONSchema()),
+      ),
+      config: {
+        extraction_mode: "BALANCED",
+        system_prompt: classoficationSystemPrompt,
+      } as ExtractConfig,
     });
-    if (classifyResponse.items.length == 0) {
-      logger.error("No result produced");
-      return {
-        number: issue.number,
-        goodFirstIssue: false,
-        labels: issue.labels,
-      };
+    const firstIssues: GoodFirstIssue[] = [];
+    if (!extractResponse.data) {
+      return firstIssues;
     }
-    const resultItem = classifyResponse.items[0];
-    if (
-      resultItem &&
-      resultItem.result &&
-      resultItem.result.type &&
-      resultItem.result.confidence > 0.5
-    ) {
-      logger.info(
-        `Classified issue ${issue.number} as ${resultItem.result.type} with a confidence of ${resultItem.result.confidence * 100}%.`,
+    const classifiedIssues: GoodFirstIssue[] = [];
+    if (!Array.isArray(extractResponse.data)) {
+      const extractedIssues = extractDataToIssues(
+        extractResponse.data,
+        issuesMap,
+        logger,
       );
-      logger.silly(`Reasons: ${resultItem.result.reasoning}`);
-      return {
-        goodFirstIssue: resultItem.result.type === "good-first-issue",
-        number: issue.number,
-        labels: issue.labels,
-      };
+      classifiedIssues.push(...extractedIssues);
+    } else {
+      const data = extractResponse.data.at(0);
+      if (data) {
+        const extractedIssues = extractDataToIssues(data, issuesMap, logger);
+        classifiedIssues.push(...extractedIssues);
+      }
     }
-    logger.info(`Issue ${issue.number} is not a good first issue`);
-    return {
-      number: issue.number,
-      goodFirstIssue: false,
-      labels: issue.labels,
-    };
+    return classifiedIssues;
   } finally {
     lock.release();
   }
+}
+
+function batchIssues(issues: GitHubIssue[]): GitHubIssue[][] {
+  const batches: GitHubIssue[][] = [];
+  for (let i = 0; i < issues.length; i += issuesBatchSize) {
+    batches.push(issues.slice(i, i + issuesBatchSize));
+  }
+  return batches;
+}
+
+function flattenBatchedIssues(batches: GoodFirstIssue[][]): GoodFirstIssue[] {
+  const issues: GoodFirstIssue[] = [];
+  for (const batch of batches) {
+    for (const issue of batch) {
+      issues.push(issue);
+    }
+  }
+  return issues;
 }
 
 export async function classifyIssues(
@@ -295,9 +365,13 @@ export async function classifyIssues(
   logger.debug("Starting to classify issues.");
   const client = getLlamaCloudClient();
   const semaphore = new CountingSemaphore("classify", 5, logger);
-  const results = await Promise.all(
-    issues.map((issue) => isGoodFirstIssue(client, issue, semaphore, logger)),
+  const batches = batchIssues(issues);
+  const batchedResults = await Promise.all(
+    batches.map((batch) =>
+      areGoodFirstIssues(client, batch, semaphore, logger),
+    ),
   );
+  const results = flattenBatchedIssues(batchedResults);
   const goodFirstIssues = results.filter((issue) => {
     return issue.goodFirstIssue;
   });
