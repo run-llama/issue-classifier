@@ -154,6 +154,10 @@ async function getLastWeekIssuesSinglePage(
   if (response.status == 200 && response.data.length > 0) {
     for (const issue of response.data) {
       if (issue) {
+        if (issue.pull_request) {
+          logger.silly(`${issue.number} is a pull request, skipping`);
+          continue;
+        }
         const creationTime = Date.parse(issue.created_at);
         if (sinceDate.getTime() > creationTime) {
           logger.silly(
