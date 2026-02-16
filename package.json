@@ -1,0 +1,16 @@
+{
+  "name": "issue-classifier",
+  "module": "index.ts",
+  "type": "module",
+  "private": true,
+  "devDependencies": {
+    "@types/bun": "latest"
+  },
+  "peerDependencies": {
+    "typescript": "^5"
+  },
+  "dependencies": {
+    "@llamaindex/llama-cloud": "^1.5.0",
+    "octokit": "^5.0.5"
+  }
+}

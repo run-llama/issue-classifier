@@ -1,0 +1,43 @@
+name: "Label Issues as Good First Issue"
+description: "Classify and label issues on a GitHub repository as good first issues using LlamaClassify"
+inputs:
+  llama-cloud-api-key:
+    description: "API key for LlamaCloud"
+    required: true
+    default: ""
+  github-token:
+    description: "GitHub token for authentication. Must have read/write permissions for issues, and read permissions for PRs."
+    required: true
+    default: ""
+  repository-owner:
+    description: "Owner of the repository (e.g., in run-llama/llama_index, the owner is 'run-llama')"
+    required: true
+    default: ""
+  repository-name:
+    description: "Name of the repository (e.g., in run-llama/llama_index, the owner is 'llama_index')"
+    required: true
+    default: ""
+
+runs:
+  using: "composite"
+  steps:
+    - name: Install bun
+      uses: oven-sh/setup-bun@v2
+
+    - name: Install dependencies
+      shell: bash
+      run: bun install
+
+    - name: Label issues
+      env:
+        LLAMA_CLOUD_API_KEY: ${{ inputs.llama-cloud-api-key }}
+        GITHUB_TOKEN: ${{ inputs.github-token }}
+        REPOSITORY_NAME: ${{ inputs.repository-name }}
+        REPOSITORY_OWNER: ${{ inputs.repository-owner }}
+      run: |
+        bun run src/index.ts
+      shell: bash
+
+branding:
+  icon: "refresh-ccw"
+  color: "green"
