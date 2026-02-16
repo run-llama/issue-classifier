@@ -13,12 +13,26 @@ import { Logger, type ILogObj } from "tslog";
 const classificationRules: ClassifierRule[] = [
   {
     type: "good-first-issue",
-    description: "the GitHub issue is suitable for first-time contributors",
+    description: `
+      The GitHub issue is suitable for first-time contributors.
+      Characteristics may include:
+      - Small, well-scoped tasks that can be completed in a few hours or days.
+      - Clear steps, examples, or instructions provided.
+      - Low dependency on complex internal knowledge.
+      - Low risk of breaking core functionality.
+    `,
   },
   {
     type: "advanced",
-    description:
-      "the GitHub issue is advanced and not suitable for first-time contributors",
+    description: `
+      The GitHub issue is advanced and not suitable for first-time contributors.
+      Characteristics may include:
+      - Large or complex tasks requiring deep understanding of the codebase.
+      - Requires knowledge of advanced concepts or multiple systems.
+      - Dependencies on ongoing work or external integrations.
+      - High risk of regressions or breaking core functionality.
+      - Tasks intended for experienced contributors or maintainers.
+    `,
   },
 ];
 
@@ -119,15 +133,14 @@ async function getLastWeekIssuesSinglePage(
   logger: Logger<ILogObj>,
 ): Promise<GitHubIssue[]> {
   const octokit = getOctokitClient();
-  const sinceDate = getOneWeekAgoDate().toISOString().split(".").at(0) + "Z";
-  logger.debug(`Looking for issues created after: ${sinceDate}`);
+  const sinceDate = getOneWeekAgoDate();
   const response = await octokit.request("GET /repos/{owner}/{repo}/issues", {
     owner: repoDetails.owner,
     repo: repoDetails.name,
     headers: {
       "X-GitHub-Api-Version": "2022-11-28",
     },
-    since: sinceDate,
+    since: sinceDate.toISOString().split(".").at(0) + "Z",
     sort: "created",
     page: page,
     per_page: pageLength,
@@ -137,6 +150,13 @@ async function getLastWeekIssuesSinglePage(
   if (response.status == 200 && response.data.length > 0) {
     for (const issue of response.data) {
       if (issue) {
+        const creationTime = Date.parse(issue.created_at);
+        if (sinceDate.getTime() > creationTime) {
+          logger.silly(
+            `Issue ${issue.number} was created before ${sinceDate.toISOString()}, so it will be skipped`,
+          );
+          continue;
+        }
         let isGoodFirstIssue: boolean = false;
         const labs = [];
         for (const label of issue.labels) {
@@ -250,7 +270,7 @@ async function isGoodFirstIssue(
       logger.info(
         `Classified issue ${issue.number} as ${resultItem.result.type} with a confidence of ${resultItem.result.confidence * 100}%.`,
       );
-      logger.debug(`Reasons: ${resultItem.result.reasoning}`);
+      logger.silly(`Reasons: ${resultItem.result.reasoning}`);
       return {
         goodFirstIssue: resultItem.result.type === "good-first-issue",
         number: issue.number,

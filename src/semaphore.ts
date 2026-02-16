@@ -61,7 +61,7 @@ export class CountingSemaphore {
    */
   acquire = (): Promise<Lock> => {
     if (this.debugLogging) {
-      this.logger.debug(
+      this.logger.silly(
         `Lock requested for the ${this.label} resource - ${this.running} active, ${this.waiting.length} waiting`,
       );
     }
@@ -72,7 +72,7 @@ export class CountingSemaphore {
     }
 
     if (this.debugLogging) {
-      this.logger.debug(
+      this.logger.silly(
         `Max active locks hit for the ${this.label} resource - there are ${this.running} tasks running and ${this.waiting.length} waiting.`,
       );
     }
@@ -95,7 +95,7 @@ export class CountingSemaphore {
    */
   purge = () => {
     if (this.debugLogging) {
-      this.logger.debug(
+      this.logger.silly(
         `Purge requested on the ${this.label} semaphore, ${this.waiting.length} pending tasks will be cancelled.`,
       );
     }
