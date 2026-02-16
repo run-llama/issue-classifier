@@ -1,10 +1,5 @@
-import {
-  classifyIssues,
-  getLastWeekIssues,
-  getLogger,
-  getRepoDetails,
-  labelIssues,
-} from "./utils";
+import { classifyIssues, getLastWeekIssues, labelIssues } from "./utils";
+import { getRepoDetails, getLogger } from "./helpers";
 
 async function main(): Promise<void> {
   const firstArg = process.argv.at(2);
