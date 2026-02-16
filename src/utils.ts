@@ -8,6 +8,7 @@ import type {
 import LlamaCloud from "@llamaindex/llama-cloud";
 import { CountingSemaphore } from "./semaphore";
 import type { ClassifierRule } from "@llamaindex/llama-cloud/resources/classifier.js";
+import { Logger, type ILogObj } from "tslog";
 
 const classificationRules: ClassifierRule[] = [
   {
@@ -20,6 +21,18 @@ const classificationRules: ClassifierRule[] = [
       "the GitHub issue is advanced and not suitable for first-time contributors",
   },
 ];
+
+const pageLength = 50;
+
+const logLevels = new Map<string, number>([
+  ["silly", 0],
+  ["trace", 1],
+  ["debug", 2],
+  ["info", 3],
+  ["warn", 4],
+  ["error", 5],
+  ["fatal", 6],
+]);
 
 function getOctokitClient(): Octokit {
   const token = process.env.GITHUB_TOKEN;
@@ -54,6 +67,13 @@ export function getRepoDetails(): RepoDetails {
     );
   }
   return { owner, name };
+}
+
+export function getLogger(level: string): Logger<ILogObj> {
+  const log: Logger<ILogObj> = new Logger({
+    minLevel: logLevels.get(level) ?? 1,
+  });
+  return log;
 }
 
 async function issueHasPr(
@@ -96,17 +116,22 @@ async function issueHasPr(
 async function getLastWeekIssuesSinglePage(
   page: number,
   repoDetails: RepoDetails,
+  logger: Logger<ILogObj>,
 ): Promise<GitHubIssue[]> {
   const octokit = getOctokitClient();
+  const sinceDate = getOneWeekAgoDate().toISOString().split(".").at(0) + "Z";
+  logger.debug(`Looking for issues created after: ${sinceDate}`);
   const response = await octokit.request("GET /repos/{owner}/{repo}/issues", {
     owner: repoDetails.owner,
     repo: repoDetails.name,
     headers: {
       "X-GitHub-Api-Version": "2022-11-28",
     },
-    since: getOneWeekAgoDate().toISOString(),
+    since: sinceDate,
+    sort: "created",
     page: page,
-    per_page: 50,
+    per_page: pageLength,
+    state: "open",
   });
   const issues: GitHubIssue[] = [];
   if (response.status == 200 && response.data.length > 0) {
@@ -140,6 +165,7 @@ async function getLastWeekIssuesSinglePage(
         }
         if (!isGoodFirstIssue) {
           const hasPr = await issueHasPr(octokit, issue.number, repoDetails);
+          logger.silly(`Issue ${issue.number} has PR: ${hasPr}`);
           issues.push({
             number: issue.number,
             content: issue.body ?? "",
@@ -152,21 +178,31 @@ async function getLastWeekIssuesSinglePage(
       }
     }
   }
+  logger.debug(`Found ${issues.length} issues for page ${page}`);
   return issues;
 }
 
 export async function getLastWeekIssues(
   repoDetails: RepoDetails,
+  logger: Logger<ILogObj>,
 ): Promise<GitHubIssue[]> {
+  logger.debug("Starting to get last week's issues.");
   const page = 1;
   const allIssues = [];
   while (true) {
-    const issues = await getLastWeekIssuesSinglePage(page, repoDetails);
-    if (issues.length == 0) {
+    logger.debug(`Retrieving issues for page ${page}`);
+    const issues = await getLastWeekIssuesSinglePage(page, repoDetails, logger);
+    const filteredIssues = issues.filter((issue) => {
+      return !issue.hasPr;
+    });
+    allIssues.push(...filteredIssues);
+    if (issues.length < pageLength) {
       break;
     }
-    allIssues.push(...issues);
   }
+  logger.info(
+    `Found ${allIssues.length} total issues that do not have associated PRs`,
+  );
   return allIssues;
 }
 
@@ -181,20 +217,23 @@ async function isGoodFirstIssue(
   client: LlamaCloud,
   issue: GitHubIssue,
   semaphore: CountingSemaphore,
+  logger: Logger<ILogObj>,
 ): Promise<GoodFirstIssue> {
-  await semaphore.acquire();
-
+  logger.debug(`Starting to classify ${issue.number}`);
+  const lock = await semaphore.acquire();
   try {
     const fileObj = await client.files.create({
       file: generateFile(issue),
       purpose: "classify",
     });
+    logger.info(`Uploaded file with ID ${fileObj.id}`);
     const classifyResponse = await client.classifier.classify({
       file_ids: [fileObj.id],
       rules: classificationRules,
       mode: "FAST",
     });
     if (classifyResponse.items.length == 0) {
+      logger.error("No result produced");
       return {
         number: issue.number,
         goodFirstIssue: false,
@@ -208,33 +247,41 @@ async function isGoodFirstIssue(
       resultItem.result.type &&
       resultItem.result.confidence > 0.5
     ) {
+      logger.info(
+        `Classified issue ${issue.number} as ${resultItem.result.type} with a confidence of ${resultItem.result.confidence * 100}%.`,
+      );
+      logger.debug(`Reasons: ${resultItem.result.reasoning}`);
       return {
         goodFirstIssue: resultItem.result.type === "good-first-issue",
         number: issue.number,
         labels: issue.labels,
       };
     }
+    logger.info(`Issue ${issue.number} is not a good first issue`);
     return {
       number: issue.number,
       goodFirstIssue: false,
       labels: issue.labels,
     };
   } finally {
-    semaphore.release();
+    lock.release();
   }
 }
 
 export async function classifyIssues(
   issues: GitHubIssue[],
+  logger: Logger<ILogObj>,
 ): Promise<GoodFirstIssue[]> {
+  logger.debug("Starting to classify issues.");
   const client = getLlamaCloudClient();
-  const semaphore = new CountingSemaphore(5);
+  const semaphore = new CountingSemaphore("classify", 5, logger);
   const results = await Promise.all(
-    issues.map((issue) => isGoodFirstIssue(client, issue, semaphore)),
+    issues.map((issue) => isGoodFirstIssue(client, issue, semaphore, logger)),
   );
   const goodFirstIssues = results.filter((issue) => {
     return issue.goodFirstIssue;
   });
+  logger.info(`Found ${goodFirstIssues.length} good first issues`);
   return goodFirstIssues;
 }
 
@@ -245,7 +292,7 @@ async function labelIssue(
   repoDetails: RepoDetails,
 ): Promise<void> {
   const labels = [...issue.labels, "good first issue"];
-  await semaphore.acquire();
+  const lock = await semaphore.acquire();
   try {
     await octokit.request("PATCH /repos/{owner}/{repo}/issues/{issue_number}", {
       owner: repoDetails.owner,
@@ -257,17 +304,20 @@ async function labelIssue(
       },
     });
   } finally {
-    semaphore.release();
+    lock.release();
   }
 }
 
 export async function labelIssues(
   issues: GoodFirstIssue[],
   repoDetails: RepoDetails,
+  logger: Logger<ILogObj>,
 ) {
+  logger.debug("Starting to update issues with the 'good first issue' label");
   const octokit = getOctokitClient();
-  const semaphore = new CountingSemaphore(5);
+  const semaphore = new CountingSemaphore("update-issues", 5, logger);
   await Promise.all(
     issues.map((issue) => labelIssue(octokit, issue, semaphore, repoDetails)),
   );
+  logger.info("Updated all issues with the 'good first issue' label");
 }

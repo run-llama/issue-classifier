@@ -13,7 +13,7 @@ bun install
 To run:
 
 ```bash
-bun run index.ts
+bun run src/index.ts <LOG_LEVEL>
 ```
 
-This project was created using `bun init` in bun v1.3.9. [Bun](https://bun.com) is a fast all-in-one JavaScript runtime.
+If not provided, `LOG_LEVEL` defaults to `info`.
