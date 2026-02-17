@@ -28,7 +28,7 @@ export class CountingSemaphore {
   private debugLogging = true;
 
   constructor(
-    private label: string,
+    public label: string,
     public max: number = cpus().length,
     public logger: Logger<ILogObj>,
   ) {
