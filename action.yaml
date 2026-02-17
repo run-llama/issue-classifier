@@ -1,5 +1,5 @@
 name: "Label Issues as Good First Issue"
-description: "Classify and label issues on a GitHub repository as good first issues using LlamaClassify"
+description: "Classify and label issues on a GitHub repository as good first issues using LlamaExtract"
 inputs:
   llama-cloud-api-key:
     description: "API key for LlamaCloud"
