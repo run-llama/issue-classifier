@@ -37,10 +37,10 @@ Use the GitHub Action to run this script in your GitHub workflows:
 - name: Classify Issues as Good First Issues
   uses: run-llama/issue-classifier@v0.1.0
   with:
-      llama-cloud-api-key: ${{ secrets.LLAMA_CLOUD_API_KEY }}
-      github-token: ${{ secrets.GITHUB_TOKEN }}
-      repository-owner: "run-llama"
-      repository-name: "llama_index"
+    llama-cloud-api-key: ${{ secrets.LLAMA_CLOUD_API_KEY }}
+    github-token: ${{ secrets.GITHUB_TOKEN }}
+    repository-owner: "run-llama"
+    repository-name: "llama_index"
 ```
 
 Since this action fetches issues from the previous week, it is recommended to run it as a chron job.
