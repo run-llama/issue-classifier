@@ -187,15 +187,21 @@ export async function labelIssue(
   const labels = [...issue.labels, "good first issue"];
   const lock = await semaphore.acquire();
   try {
-    await octokit.request("PATCH /repos/{owner}/{repo}/issues/{issue_number}", {
-      owner: repoDetails.owner,
-      repo: repoDetails.name,
-      issue_number: issue.number,
-      labels: labels,
-      headers: {
-        "X-GitHub-Api-Version": "2022-11-28",
+    const response = await octokit.request(
+      "PATCH /repos/{owner}/{repo}/issues/{issue_number}",
+      {
+        owner: repoDetails.owner,
+        repo: repoDetails.name,
+        issue_number: issue.number,
+        labels: labels,
+        headers: {
+          "X-GitHub-Api-Version": "2022-11-28",
+        },
       },
-    });
+    );
+    if (response.status >= 299 || response.status < 200) {
+      throw Error(`Non-ok status returned by response: ${response.status}`);
+    }
   } finally {
     lock.release();
   }

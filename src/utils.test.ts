@@ -74,6 +74,7 @@ describe("Update issues (mock) test", () => {
       { owner: "run-llama", name: "llama_index" },
       helpers.getLogger("info"),
     );
+    // the function returns void so this should be undefined
     expect(response).toBeUndefined();
   });
 });

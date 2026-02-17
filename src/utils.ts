@@ -1,4 +1,3 @@
-import { Octokit } from "octokit";
 import {
   type GitHubIssue,
   type GoodFirstIssue,

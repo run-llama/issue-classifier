@@ -8,6 +8,7 @@ import {
 } from "./types";
 import LlamaCloud from "@llamaindex/llama-cloud";
 import { Logger, type ILogObj } from "tslog";
+import { File } from "buffer";
 
 const logLevels = new Map<string, number>([
   ["silly", 0],
@@ -58,7 +59,7 @@ export function getRepoDetails(): RepoDetails {
 
 export function getLogger(level: string): Logger<ILogObj> {
   const log: Logger<ILogObj> = new Logger({
-    minLevel: logLevels.get(level) ?? 1,
+    minLevel: logLevels.get(level) ?? 3,
   });
   return log;
 }
