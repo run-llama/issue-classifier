@@ -1,7 +1,6 @@
 import { vi, describe, expect, it } from "vitest";
 import * as helpers from "./helpers";
 import * as fetcher from "./fetcher";
-import { CountingSemaphore } from "./semaphore";
 import LlamaCloud from "@llamaindex/llama-cloud";
 import { type GitHubIssue, ClassifiedGitHubIssues } from "./types";
 import { z } from "zod";
@@ -224,12 +223,9 @@ describe("test GitHub fetchers", () => {
   });
   it("test labelIssue", async () => {
     const client = helpers.getOctokitClient();
-    const logger = helpers.getLogger("info");
-    const semaphore = new CountingSemaphore("test", 5, logger);
     const response = await fetcher.labelIssue(
       client,
       { number: 1, goodFirstIssue: true, labels: ["ui"] },
-      semaphore,
       { owner: "run-llama", name: "llama_index" },
     );
     // this returns void so this should be undefined if it did not throw
@@ -242,11 +238,9 @@ describe("test LlamaCloud fetcher", () => {
     const issuesMap = helpers.issuesToMap(githubIssues);
     const client = helpers.getLlamaCloudClient();
     const logger = helpers.getLogger("info");
-    const semaphore = new CountingSemaphore("test", 5, logger);
     const goodFirstIssues = await fetcher.areGoodFirstIssues(
       client,
       githubIssues,
-      semaphore,
       logger,
     );
     expect(

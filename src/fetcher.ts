@@ -7,7 +7,6 @@ import {
 } from "./types";
 import LlamaCloud from "@llamaindex/llama-cloud";
 import { Logger, type ILogObj } from "tslog";
-import { CountingSemaphore } from "./semaphore";
 import type { ExtractConfig } from "@llamaindex/llama-cloud/resources/extraction.js";
 import {
   getOctokitClient,
@@ -129,80 +128,68 @@ export async function getLastWeekIssuesSinglePage(
 export async function areGoodFirstIssues(
   client: LlamaCloud,
   issues: GitHubIssue[],
-  semaphore: CountingSemaphore,
   logger: Logger<ILogObj>,
 ): Promise<GoodFirstIssue[]> {
   logger.debug(
     `Starting to classify issues range: ${issues.at(0)!.number}-${issues.at(issues.length - 1)!.number}`,
   );
-  const lock = await semaphore.acquire();
   const issuesMap = issuesToMap(issues);
-  try {
-    const fileObj = await client.files.create({
-      file: generateFile(issues),
-      purpose: "extract",
-    });
-    logger.info(`Uploaded file with ID ${fileObj.id}`);
-    const extractResponse = await client.extraction.extract({
-      file_id: fileObj.id,
-      data_schema: JSON.parse(
-        JSON.stringify(ClassifiedGitHubIssues.toJSONSchema()),
-      ),
-      config: {
-        extraction_mode: "BALANCED",
-        system_prompt: classificationSystemPrompt,
-      } as ExtractConfig,
-    });
-    const firstIssues: GoodFirstIssue[] = [];
-    if (!extractResponse.data) {
-      return firstIssues;
-    }
-    const classifiedIssues: GoodFirstIssue[] = [];
-    if (!Array.isArray(extractResponse.data)) {
-      const extractedIssues = extractDataToIssues(
-        extractResponse.data,
-        issuesMap,
-        logger,
-      );
-      classifiedIssues.push(...extractedIssues);
-    } else {
-      const data = extractResponse.data.at(0);
-      if (data) {
-        const extractedIssues = extractDataToIssues(data, issuesMap, logger);
-        classifiedIssues.push(...extractedIssues);
-      }
-    }
-    return classifiedIssues;
-  } finally {
-    lock.release();
+  const fileObj = await client.files.create({
+    file: generateFile(issues),
+    purpose: "extract",
+  });
+  logger.info(`Uploaded file with ID ${fileObj.id}`);
+  const extractResponse = await client.extraction.extract({
+    file_id: fileObj.id,
+    data_schema: JSON.parse(
+      JSON.stringify(ClassifiedGitHubIssues.toJSONSchema()),
+    ),
+    config: {
+      extraction_mode: "BALANCED",
+      system_prompt: classificationSystemPrompt,
+    } as ExtractConfig,
+  });
+  const firstIssues: GoodFirstIssue[] = [];
+  if (!extractResponse.data) {
+    return firstIssues;
   }
+  const classifiedIssues: GoodFirstIssue[] = [];
+  if (!Array.isArray(extractResponse.data)) {
+    const extractedIssues = extractDataToIssues(
+      extractResponse.data,
+      issuesMap,
+      logger,
+    );
+    classifiedIssues.push(...extractedIssues);
+  } else {
+    const data = extractResponse.data.at(0);
+    if (data) {
+      const extractedIssues = extractDataToIssues(data, issuesMap, logger);
+      classifiedIssues.push(...extractedIssues);
+    }
+  }
+  return classifiedIssues;
 }
 
 export async function labelIssue(
   octokit: Octokit,
   issue: GoodFirstIssue,
-  semaphore: CountingSemaphore,
   repoDetails: RepoDetails,
 ): Promise<void> {
   const labels = [...issue.labels, "good first issue"];
-  const lock = await semaphore.acquire();
-  try {
-    const response = await octokit.request(
-      "PATCH /repos/{owner}/{repo}/issues/{issue_number}",
-      {
-        owner: repoDetails.owner,
-        repo: repoDetails.name,
-        issue_number: issue.number,
-        labels: labels,
-        headers: {
-          "X-GitHub-Api-Version": "2022-11-28",
-        },
+  const response = await octokit.request(
+    "PATCH /repos/{owner}/{repo}/issues/{issue_number}",
+    {
+      owner: repoDetails.owner,
+      repo: repoDetails.name,
+      issue_number: issue.number,
+      labels: labels,
+      headers: {
+        "X-GitHub-Api-Version": "2022-11-28",
       },
-    );
-    if (response.status >= 299 || response.status < 200) {
-      throw Error(`Non-ok status returned by response: ${response.status}`);
-    }
-  } finally {
-    lock.release();
+    },
+  );
+  if (response.status >= 299 || response.status < 200) {
+    throw Error(`Non-ok status returned by response: ${response.status}`);
   }
 }

@@ -3,7 +3,6 @@ import {
   type GoodFirstIssue,
   type RepoDetails,
 } from "./types";
-import { CountingSemaphore } from "./semaphore";
 import { Logger, type ILogObj } from "tslog";
 import {
   getLlamaCloudClient,
@@ -17,6 +16,7 @@ import {
   areGoodFirstIssues,
   labelIssue,
 } from "./fetcher";
+import pLimit from "p-limit";
 
 export async function getLastWeekIssues(
   repoDetails: RepoDetails,
@@ -48,11 +48,11 @@ export async function classifyIssues(
 ): Promise<GoodFirstIssue[]> {
   logger.debug("Starting to classify issues.");
   const client = getLlamaCloudClient();
-  const semaphore = new CountingSemaphore("classify", 5, logger);
+  const limit = pLimit(5);
   const batches = batchIssues(issues);
   const batchedResults = await Promise.all(
     batches.map((batch) =>
-      areGoodFirstIssues(client, batch, semaphore, logger),
+      limit(() => areGoodFirstIssues(client, batch, logger)),
     ),
   );
   const results = flattenBatchedIssues(batchedResults);
@@ -70,9 +70,9 @@ export async function labelIssues(
 ) {
   logger.debug("Starting to update issues with the 'good first issue' label");
   const octokit = getOctokitClient();
-  const semaphore = new CountingSemaphore("update-issues", 5, logger);
+  const limit = pLimit(5);
   await Promise.all(
-    issues.map((issue) => labelIssue(octokit, issue, semaphore, repoDetails)),
+    issues.map((issue) => limit(() => labelIssue(octokit, issue, repoDetails))),
   );
   logger.info("Updated all issues with the 'good first issue' label");
 }
