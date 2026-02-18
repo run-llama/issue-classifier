@@ -1,8 +1,17 @@
 {
-  "name": "issue-classifier",
-  "module": "index.ts",
+  "name": "@llamaindex/issue-classifier",
+  "version": "0.1.0",
+  "description": "Classify GitHub Issues as `good first issue` using LlamaExtract",
   "type": "module",
-  "private": true,
+  "bin": {
+    "issue-classifier": "dist/index.js"
+  },
+  "keywords": [
+    "github",
+    "issues",
+    "open-source-management",
+    "ai"
+  ],
   "devDependencies": {
     "@eslint/js": "^10.0.1",
     "@types/bun": "latest",
@@ -28,6 +37,15 @@
     "format": "prettier . --check",
     "format:fix": "prettier . --write",
     "lint": "eslint src/",
-    "lint:fix": "eslint src/ --fix"
+    "lint:fix": "eslint src/ --fix",
+    "build": "bun build ./src/index.ts --outdir ./dist --target node",
+    "prepublishOnly": "bun run build"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "publishConfig": {
+    "access": "public"
   }
 }

@@ -24,10 +24,6 @@ runs:
     - name: Install bun
       uses: oven-sh/setup-bun@v2
 
-    - name: Install dependencies
-      shell: bash
-      run: bun install
-
     - name: Label issues
       env:
         LLAMA_CLOUD_API_KEY: ${{ inputs.llama-cloud-api-key }}
@@ -35,7 +31,7 @@ runs:
         REPOSITORY_NAME: ${{ inputs.repository-name }}
         REPOSITORY_OWNER: ${{ inputs.repository-owner }}
       run: |
-        bun run src/index.ts
+        bunx @llamaindex/issue-classifier
       shell: bash
 
 branding:

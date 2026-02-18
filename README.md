@@ -4,12 +4,6 @@ Classifier for open issues on a GitHub repository that uses [LlamaExtract](https
 
 ## Setup and Usage
 
-To install dependencies:
-
-```bash
-bun install
-```
-
 Export the necessary environment variables:
 
 ```bash
@@ -20,6 +14,37 @@ export REPOSITORY_NAME="llama_index" # or whatever repository name
 ```
 
 Or store them in a `.env` file.
+
+### With NPM package
+
+Install the NPM package gloablly:
+
+```bash
+npm install -g @llamaindex/issue-classifier
+# verify installation
+issue-classifier help
+```
+
+Or run with `npx` (or other Node-compatible executors like `bunx`):
+
+```bash
+npx @llamaindex/issue-classifier help
+```
+
+### Development
+
+Clone the GitHub repository:
+
+```bash
+git clone https://github.com/run-llama/issue-classifier
+cd issue-classifier
+```
+
+To install dependencies:
+
+```bash
+bun install
+```
 
 To run:
 
