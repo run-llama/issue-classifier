@@ -1,3 +1,5 @@
+#!/usr/bin/env node
+
 import { classifyIssues, getLastWeekIssues, labelIssues } from "./utils";
 import { getRepoDetails, getLogger } from "./helpers";
 
